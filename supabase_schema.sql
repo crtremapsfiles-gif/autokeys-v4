@@ -164,3 +164,31 @@ alter table orders add column if not exists attachment_notes text;
 alter table orders add column if not exists technical_case text;
 alter table orders add column if not exists technical_solution text;
 alter table orders add column if not exists document_notes text;
+
+
+-- AUTOKEYS V6 PRESUPUESTOS PREMIUM INDEPENDIENTES
+create table if not exists quotations (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz default now(),
+  quote_number text unique,
+  quote_date text,
+  validity text default '30 días',
+  status text default 'Pendiente',
+  client_name text,
+  client_dni text,
+  client_phone text,
+  client_email text,
+  vehicle_plate text,
+  vehicle_brand text,
+  vehicle_model text,
+  vehicle_vin text,
+  lines jsonb default '[]'::jsonb,
+  notes text,
+  subtotal numeric default 0,
+  tax_percent numeric default 21,
+  tax_amount numeric default 0,
+  total_amount numeric default 0
+);
+alter table quotations enable row level security;
+drop policy if exists "quotations_all_v6" on quotations;
+create policy "quotations_all_v6" on quotations for all using (true) with check (true);

@@ -721,16 +721,50 @@ function invoiceLinesEditor(){
   ensureInvoiceLines();
   return `<table class="quoteFormTable"><thead><tr><th style="width:70px">Cant.</th><th style="width:85px">Unidad</th><th>Producto / servicio</th><th style="width:120px">P. unitario</th><th style="width:90px">Dto. %</th><th style="width:90px"></th></tr></thead><tbody>${selectedItem.invoice_lines.map((l,i)=>`<tr><td><input type="number" step="0.01" value="${qEsc(l.qty??1)}" oninput="selectedItem.invoice_lines[${i}].qty=this.value"></td><td><input value="${qEsc(l.unit||'Ud')}" oninput="selectedItem.invoice_lines[${i}].unit=this.value"></td><td><textarea oninput="selectedItem.invoice_lines[${i}].description=this.value">${qEsc(l.description||'')}</textarea></td><td><input type="number" step="0.01" value="${qEsc(l.unit_price??0)}" oninput="selectedItem.invoice_lines[${i}].unit_price=this.value"></td><td><input type="number" step="0.01" value="${qEsc(l.discount??0)}" oninput="selectedItem.invoice_lines[${i}].discount=this.value"></td><td><button class="danger" onclick="removeInvoiceLine(${i})">Eliminar</button></td></tr>`).join("")}</tbody></table><div class="inlineActions"><button onclick="addInvoiceLine()">+ Añadir línea</button></div>`;
 }
+function invoiceCleanLines(lines){
+  return (lines||[]).map(l=>({
+    qty:euros(l.qty||1),
+    unit:l.unit||"Ud",
+    description:l.description||"Servicio AutokeysPro",
+    unit_price:euros(l.unit_price||0),
+    discount:euros(l.discount||0),
+    total:invoiceLineTotal(l)
+  })).filter(l=>String(l.description||"").trim()!=="");
+}
+function invoiceLocalKeys(inv){
+  const keys=[];
+  if(inv&&inv.id)keys.push("autokeys_invoice_lines_id_"+inv.id);
+  if(inv&&inv.invoice_number)keys.push("autokeys_invoice_lines_num_"+inv.invoice_number);
+  if(inv&&inv.order_id)keys.push("autokeys_invoice_lines_order_"+inv.order_id+"_"+(inv.document_type||"Factura"));
+  return keys;
+}
+function saveInvoiceLinesLocal(inv,lines){
+  try{
+    const clean=invoiceCleanLines(lines);
+    invoiceLocalKeys(inv).forEach(k=>localStorage.setItem(k,JSON.stringify(clean)));
+  }catch(e){}
+}
+function readInvoiceLinesLocal(inv){
+  try{
+    for(const k of invoiceLocalKeys(inv)){
+      const raw=localStorage.getItem(k);
+      if(raw){const arr=JSON.parse(raw); if(Array.isArray(arr)&&arr.length)return arr;}
+    }
+  }catch(e){}
+  return [];
+}
 async function generateInvoice(docType){
   if(!selectedItem||!selectedItem.id){alert("Guarda primero la OT antes de generar documento.");return}
   const type=docType||selectedItem.invoice_document_type||selectedItem.document_type||"Factura";
   const existing=(invoices||[]).find(x=>x.order_id===selectedItem.id && (x.document_type||"Factura")===type && x.status!=="Anulada");
-  if(existing){selectedItem=existing;currentView="invoiceView";render();return}
   const lines=invoiceLines(selectedItem).length?invoiceLines(selectedItem):[defaultInvoiceLine(selectedItem)];
+  if(existing){saveInvoiceLinesLocal(existing,lines);selectedItem=existing;currentView="invoiceView";render();return}
+
   const base=lines.reduce((a,l)=>a+invoiceLineTotal(l),0)+euros(selectedItem.shipping_price||0), taxPercent=type==="Albarán"?0:invoiceTaxPercent(selectedItem), tax=base*taxPercent/100;
   const inv={invoice_number:nextDocumentNumber(type),document_type:type,order_id:selectedItem.id,invoice_date:today(),customer_name:selectedItem.client_name||"",customer_nif:selectedItem.client_dni||"",customer_phone:selectedItem.client_phone||"",customer_email:selectedItem.client_email||"",vehicle_plate:selectedItem.vehicle_plate||"",vehicle_vin:selectedItem.vehicle_vin||"",vehicle_brand:selectedItem.vehicle_brand||"",vehicle_model:selectedItem.vehicle_model||"",service_type:selectedItem.service_type||"",service_description:selectedItem.service_requested||selectedItem.services||selectedItem.work_done||"",base_amount:base,tax_percent:taxPercent,tax_amount:tax,total_amount:base+tax,payment_method:selectedItem.payment_method||"Pendiente",status:selectedItem.invoice_status||"Pendiente",shipping_company:selectedItem.shipping_company||"",shipping_price:euros(selectedItem.shipping_price||0),shipping_tracking:selectedItem.shipping_tracking||"",shipping_status:selectedItem.shipping_status||"",shipping_notes:selectedItem.shipping_notes||"",notes:selectedItem.invoice_notes||""};
   const {data,error}=await db.from("invoices").insert(inv).select().single();
   if(error){errorMsg=error.message;render();return}
+  saveInvoiceLinesLocal(data,lines);
   message=type+" generado correctamente.";selectedItem=data;await loadData();currentView="invoiceView";render();
 }
 function viewInvoiceFromOrder(){if(!selectedItem||!selectedItem.id){alert("Guarda primero la OT.");return}const inv=(invoices||[]).find(x=>x.order_id===selectedItem.id && x.status!=="Anulada");if(inv){selectedItem=inv;currentView="invoiceView";render();return}alert("Esta OT todavía no tiene documento generado.")}
@@ -1312,30 +1346,18 @@ function proCompanyHtml(){
   </div>`;
 }
 function proLineFromInvoice(inv){
-  let lines=invoiceLines(inv).map(l=>({
-    qty:euros(l.qty||1),
-    unit:l.unit||"Ud",
-    description:l.description||inv.service_description||"Servicio AutokeysPro",
-    unit_price:euros(l.unit_price||0),
-    discount:euros(l.discount||0),
-    total:invoiceLineTotal(l)
-  }));
+  let lines=invoiceCleanLines(invoiceLines(inv));
+  if(!lines.length)lines=readInvoiceLinesLocal(inv);
   if(!lines.length){
     const desc=inv.service_description||"Servicio AutokeysPro";
     const base=euros(inv.base_amount||0);
     const shipping=euros(inv.shipping_price||0);
     const serviceBase=Math.max(0, base-shipping);
-    const descLines=String(desc).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-    if(descLines.length>1){
-      descLines.forEach((d,i)=>{
-        lines.push({qty:1,unit:"Ud",description:d,unit_price:i===0?(serviceBase||base):0,discount:0,total:i===0?(serviceBase||base):0});
-      });
-    }else{
-      lines.push({qty:1,unit:"Ud",description:desc,unit_price:serviceBase||base,discount:0,total:serviceBase||base});
-    }
+    lines.push({qty:1,unit:"Ud",description:desc,unit_price:serviceBase||base,discount:0,total:serviceBase||base});
   }
   const shipping=euros(inv.shipping_price||0);
-  if(shipping>0){
+  const alreadyShipping=lines.some(l=>String(l.description||"").toLowerCase().includes("envío")||String(l.description||"").toLowerCase().includes("portes"));
+  if(shipping>0 && !alreadyShipping){
     const comp=inv.shipping_company && inv.shipping_company!=="Sin envío" ? inv.shipping_company : "Envío";
     const tr=inv.shipping_tracking ? " · Seguimiento: "+inv.shipping_tracking : "";
     lines.push({qty:1,unit:"Ud",description:`${comp}${tr}`,unit_price:shipping,discount:0,total:shipping});

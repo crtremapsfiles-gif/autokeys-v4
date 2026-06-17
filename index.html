@@ -700,14 +700,35 @@ function ensureQuoteLines(){if(!selectedItem.lines||!Array.isArray(selectedItem.
 function invoiceBase(o){return euros(o.invoice_base || o.income_service || o.budget_margin || o.price || 0)}
 function invoiceTaxPercent(o){const type=(o.invoice_document_type||o.document_type||"Factura").toLowerCase();if(type.includes("albar"))return 0;return euros(o.invoice_tax_percent ?? 21)}
 function invoiceTaxAmount(o){return invoiceBase(o)*invoiceTaxPercent(o)/100}
-function invoiceTotal(o){return invoiceBase(o)+invoiceTaxAmount(o)}
+function invoiceTotal(o){return invoiceLinesSubtotal(o)+euros(o.shipping_price||0)+invoiceTaxAmount(o)}
+function invoiceLines(o){
+  try{if(Array.isArray(o.invoice_lines))return o.invoice_lines;if(typeof o.invoice_lines==="string")return JSON.parse(o.invoice_lines||"[]")}catch(e){}
+  try{if(Array.isArray(o.lines))return o.lines;if(typeof o.lines==="string")return JSON.parse(o.lines||"[]")}catch(e){}
+  return [];
+}
+function defaultInvoiceLine(o){
+  return {qty:1,unit:"Ud",description:o.service_requested||o.services||o.work_done||"Servicio AutokeysPro",unit_price:invoiceBase(o),discount:0};
+}
+function ensureInvoiceLines(){
+  if(!selectedItem.invoice_lines||!Array.isArray(selectedItem.invoice_lines))selectedItem.invoice_lines=invoiceLines(selectedItem);
+  if(!selectedItem.invoice_lines.length)selectedItem.invoice_lines=[defaultInvoiceLine(selectedItem)];
+}
+function invoiceLineTotal(l){return euros(l.qty||1)*euros(l.unit_price||0)*(1-euros(l.discount||0)/100)}
+function invoiceLinesSubtotal(o){const ls=invoiceLines(o);return ls.length?ls.reduce((a,l)=>a+invoiceLineTotal(l),0):invoiceBase(o)}
+function addInvoiceLine(){ensureInvoiceLines();selectedItem.invoice_lines.push({qty:1,unit:"Ud",description:"",unit_price:0,discount:0});render()}
+function removeInvoiceLine(i){ensureInvoiceLines();selectedItem.invoice_lines.splice(i,1);if(!selectedItem.invoice_lines.length)addInvoiceLine();render()}
+function invoiceLinesEditor(){
+  ensureInvoiceLines();
+  return `<table class="quoteFormTable"><thead><tr><th style="width:70px">Cant.</th><th style="width:85px">Unidad</th><th>Producto / servicio</th><th style="width:120px">P. unitario</th><th style="width:90px">Dto. %</th><th style="width:90px"></th></tr></thead><tbody>${selectedItem.invoice_lines.map((l,i)=>`<tr><td><input type="number" step="0.01" value="${qEsc(l.qty??1)}" oninput="selectedItem.invoice_lines[${i}].qty=this.value"></td><td><input value="${qEsc(l.unit||'Ud')}" oninput="selectedItem.invoice_lines[${i}].unit=this.value"></td><td><textarea oninput="selectedItem.invoice_lines[${i}].description=this.value">${qEsc(l.description||'')}</textarea></td><td><input type="number" step="0.01" value="${qEsc(l.unit_price??0)}" oninput="selectedItem.invoice_lines[${i}].unit_price=this.value"></td><td><input type="number" step="0.01" value="${qEsc(l.discount??0)}" oninput="selectedItem.invoice_lines[${i}].discount=this.value"></td><td><button class="danger" onclick="removeInvoiceLine(${i})">Eliminar</button></td></tr>`).join("")}</tbody></table><div class="inlineActions"><button onclick="addInvoiceLine()">+ Añadir línea</button></div>`;
+}
 async function generateInvoice(docType){
   if(!selectedItem||!selectedItem.id){alert("Guarda primero la OT antes de generar documento.");return}
   const type=docType||selectedItem.invoice_document_type||selectedItem.document_type||"Factura";
   const existing=(invoices||[]).find(x=>x.order_id===selectedItem.id && (x.document_type||"Factura")===type && x.status!=="Anulada");
   if(existing){selectedItem=existing;currentView="invoiceView";render();return}
-  const base=invoiceBase(selectedItem)+euros(selectedItem.shipping_price||0), taxPercent=type==="Albarán"?0:invoiceTaxPercent(selectedItem), tax=base*taxPercent/100;
-  const inv={invoice_number:nextDocumentNumber(type),document_type:type,order_id:selectedItem.id,invoice_date:today(),customer_name:selectedItem.client_name||"",customer_nif:selectedItem.client_dni||"",customer_phone:selectedItem.client_phone||"",customer_email:selectedItem.client_email||"",vehicle_plate:selectedItem.vehicle_plate||"",vehicle_vin:selectedItem.vehicle_vin||"",vehicle_brand:selectedItem.vehicle_brand||"",vehicle_model:selectedItem.vehicle_model||"",service_type:selectedItem.service_type||"",service_description:selectedItem.service_requested||selectedItem.services||selectedItem.work_done||"",base_amount:base,tax_percent:taxPercent,tax_amount:tax,total_amount:base+tax,payment_method:selectedItem.payment_method||"Pendiente",status:selectedItem.invoice_status||"Pendiente",shipping_company:selectedItem.shipping_company||"",shipping_price:euros(selectedItem.shipping_price||0),shipping_tracking:selectedItem.shipping_tracking||"",shipping_status:selectedItem.shipping_status||"",shipping_notes:selectedItem.shipping_notes||"",notes:selectedItem.invoice_notes||""};
+  const lines=invoiceLines(selectedItem).length?invoiceLines(selectedItem):[defaultInvoiceLine(selectedItem)];
+  const base=lines.reduce((a,l)=>a+invoiceLineTotal(l),0)+euros(selectedItem.shipping_price||0), taxPercent=type==="Albarán"?0:invoiceTaxPercent(selectedItem), tax=base*taxPercent/100;
+  const inv={invoice_number:nextDocumentNumber(type),document_type:type,order_id:selectedItem.id,invoice_date:today(),customer_name:selectedItem.client_name||"",customer_nif:selectedItem.client_dni||"",customer_phone:selectedItem.client_phone||"",customer_email:selectedItem.client_email||"",vehicle_plate:selectedItem.vehicle_plate||"",vehicle_vin:selectedItem.vehicle_vin||"",vehicle_brand:selectedItem.vehicle_brand||"",vehicle_model:selectedItem.vehicle_model||"",service_type:selectedItem.service_type||"",service_description:selectedItem.service_requested||selectedItem.services||selectedItem.work_done||"",lines:lines,base_amount:base,tax_percent:taxPercent,tax_amount:tax,total_amount:base+tax,payment_method:selectedItem.payment_method||"Pendiente",status:selectedItem.invoice_status||"Pendiente",shipping_company:selectedItem.shipping_company||"",shipping_price:euros(selectedItem.shipping_price||0),shipping_tracking:selectedItem.shipping_tracking||"",shipping_status:selectedItem.shipping_status||"",shipping_notes:selectedItem.shipping_notes||"",notes:selectedItem.invoice_notes||""};
   const {data,error}=await db.from("invoices").insert(inv).select().single();
   if(error){errorMsg=error.message;render();return}
   message=type+" generado correctamente.";selectedItem=data;await loadData();currentView="invoiceView";render();
@@ -1063,14 +1084,15 @@ function orderIntegratedSections(){
 <div class="sectionTitle">Facturación / Ticket / Albarán</div>
   <div class="grid"><div class="box">
     ${select("Tipo documento","invoice_document_type",["Factura","Ticket de venta","Albarán"])}
-    ${f("Base imponible / importe (€)","invoice_base","number")}
+    <h4>Líneas de factura</h4>
+    ${invoiceLinesEditor()}
     ${select("IVA documento","invoice_tax_percent",["0","10","21"])}
     ${select("Estado documento","invoice_status",["Pendiente","Pagada","Anulada"])}
     ${select("Forma pago","payment_method",["Pendiente","Efectivo","Bizum","Transferencia","Tarjeta"])}
     <div class="invoiceTotals">
-      <div class="mini"><small>Base</small><b>${invoiceBase(selectedItem).toFixed(2)} €</b></div>
-      <div class="mini"><small>IVA</small><b>${invoiceTaxAmount(selectedItem).toFixed(2)} €</b></div>
-      <div class="mini"><small>Total</small><b>${invoiceTotal(selectedItem).toFixed(2)} €</b></div>
+      <div class="mini"><small>Base</small><b>${(invoiceLinesSubtotal(selectedItem)+euros(selectedItem.shipping_price||0)).toFixed(2)} €</b></div>
+      <div class="mini"><small>IVA</small><b>${(((invoiceLinesSubtotal(selectedItem)+euros(selectedItem.shipping_price||0))*invoiceTaxPercent(selectedItem)/100)).toFixed(2)} €</b></div>
+      <div class="mini"><small>Total</small><b>${((invoiceLinesSubtotal(selectedItem)+euros(selectedItem.shipping_price||0))*(1+invoiceTaxPercent(selectedItem)/100)).toFixed(2)} €</b></div>
       <div class="mini"><small>Tipo</small><b>${selectedItem.invoice_document_type||"Factura"}</b></div>
     </div>
     <div class="inlineActions"><button onclick="generateInvoice('Factura')">Generar factura</button><button onclick="generateInvoice('Ticket de venta')">Generar ticket</button><button onclick="generateInvoice('Albarán')">Generar albarán</button><button onclick="viewInvoiceFromOrder()">Ver documento</button></div>
@@ -1290,34 +1312,27 @@ function proCompanyHtml(){
   </div>`;
 }
 function proLineFromInvoice(inv){
-  const lines=[];
-  const desc=inv.service_description||"Servicio AutokeysPro";
-  const base=euros(inv.base_amount||0);
+  let lines=invoiceLines(inv).map(l=>({
+    qty:euros(l.qty||1),
+    unit:l.unit||"Ud",
+    description:l.description||inv.service_description||"Servicio AutokeysPro",
+    unit_price:euros(l.unit_price||0),
+    discount:euros(l.discount||0),
+    total:invoiceLineTotal(l)
+  }));
+  if(!lines.length){
+    const desc=inv.service_description||"Servicio AutokeysPro";
+    const base=euros(inv.base_amount||0);
+    const shipping=euros(inv.shipping_price||0);
+    const serviceBase=Math.max(0, base-shipping);
+    lines.push({qty:1,unit:"Ud",description:desc,unit_price:serviceBase||base,discount:0,total:serviceBase||base});
+  }
   const shipping=euros(inv.shipping_price||0);
-  const serviceBase=Math.max(0, base-shipping);
-
-  lines.push({
-    qty:1,
-    unit:"Ud",
-    description:desc,
-    unit_price:serviceBase || base,
-    discount:0,
-    total:serviceBase || base
-  });
-
   if(shipping>0){
     const comp=inv.shipping_company && inv.shipping_company!=="Sin envío" ? inv.shipping_company : "Envío";
     const tr=inv.shipping_tracking ? " · Seguimiento: "+inv.shipping_tracking : "";
-    lines.push({
-      qty:1,
-      unit:"Ud",
-      description:`${comp}${tr}`,
-      unit_price:shipping,
-      discount:0,
-      total:shipping
-    });
+    lines.push({qty:1,unit:"Ud",description:`${comp}${tr}`,unit_price:shipping,discount:0,total:shipping});
   }
-
   return lines;
 }
 function proLineTotal(l){return euros(l.total ?? (euros(l.qty||1)*euros(l.unit_price||0)*(1-euros(l.discount||0)/100)))}

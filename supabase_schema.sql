@@ -192,3 +192,8 @@ create table if not exists quotations (
 alter table quotations enable row level security;
 drop policy if exists "quotations_all_v6" on quotations;
 create policy "quotations_all_v6" on quotations for all using (true) with check (true);
+
+
+-- AUTOKEYS V6.1 LINEAS DE FACTURA / TICKET / ALBARAN
+alter table orders add column if not exists invoice_lines jsonb default '[]'::jsonb;
+alter table invoices add column if not exists lines jsonb default '[]'::jsonb;

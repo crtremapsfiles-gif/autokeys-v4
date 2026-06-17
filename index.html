@@ -703,7 +703,7 @@ function invoiceTaxAmount(o){return invoiceBase(o)*invoiceTaxPercent(o)/100}
 function invoiceTotal(o){return invoiceLinesSubtotal(o)+euros(o.shipping_price||0)+invoiceTaxAmount(o)}
 function invoiceLines(o){
   try{if(Array.isArray(o.invoice_lines))return o.invoice_lines;if(typeof o.invoice_lines==="string")return JSON.parse(o.invoice_lines||"[]")}catch(e){}
-  try{if(Array.isArray(o.lines))return o.lines;if(typeof o.lines==="string")return JSON.parse(o.lines||"[]")}catch(e){}
+  
   return [];
 }
 function defaultInvoiceLine(o){
@@ -728,7 +728,7 @@ async function generateInvoice(docType){
   if(existing){selectedItem=existing;currentView="invoiceView";render();return}
   const lines=invoiceLines(selectedItem).length?invoiceLines(selectedItem):[defaultInvoiceLine(selectedItem)];
   const base=lines.reduce((a,l)=>a+invoiceLineTotal(l),0)+euros(selectedItem.shipping_price||0), taxPercent=type==="Albarán"?0:invoiceTaxPercent(selectedItem), tax=base*taxPercent/100;
-  const inv={invoice_number:nextDocumentNumber(type),document_type:type,order_id:selectedItem.id,invoice_date:today(),customer_name:selectedItem.client_name||"",customer_nif:selectedItem.client_dni||"",customer_phone:selectedItem.client_phone||"",customer_email:selectedItem.client_email||"",vehicle_plate:selectedItem.vehicle_plate||"",vehicle_vin:selectedItem.vehicle_vin||"",vehicle_brand:selectedItem.vehicle_brand||"",vehicle_model:selectedItem.vehicle_model||"",service_type:selectedItem.service_type||"",service_description:selectedItem.service_requested||selectedItem.services||selectedItem.work_done||"",lines:lines,base_amount:base,tax_percent:taxPercent,tax_amount:tax,total_amount:base+tax,payment_method:selectedItem.payment_method||"Pendiente",status:selectedItem.invoice_status||"Pendiente",shipping_company:selectedItem.shipping_company||"",shipping_price:euros(selectedItem.shipping_price||0),shipping_tracking:selectedItem.shipping_tracking||"",shipping_status:selectedItem.shipping_status||"",shipping_notes:selectedItem.shipping_notes||"",notes:selectedItem.invoice_notes||""};
+  const inv={invoice_number:nextDocumentNumber(type),document_type:type,order_id:selectedItem.id,invoice_date:today(),customer_name:selectedItem.client_name||"",customer_nif:selectedItem.client_dni||"",customer_phone:selectedItem.client_phone||"",customer_email:selectedItem.client_email||"",vehicle_plate:selectedItem.vehicle_plate||"",vehicle_vin:selectedItem.vehicle_vin||"",vehicle_brand:selectedItem.vehicle_brand||"",vehicle_model:selectedItem.vehicle_model||"",service_type:selectedItem.service_type||"",service_description:selectedItem.service_requested||selectedItem.services||selectedItem.work_done||"",base_amount:base,tax_percent:taxPercent,tax_amount:tax,total_amount:base+tax,payment_method:selectedItem.payment_method||"Pendiente",status:selectedItem.invoice_status||"Pendiente",shipping_company:selectedItem.shipping_company||"",shipping_price:euros(selectedItem.shipping_price||0),shipping_tracking:selectedItem.shipping_tracking||"",shipping_status:selectedItem.shipping_status||"",shipping_notes:selectedItem.shipping_notes||"",notes:selectedItem.invoice_notes||""};
   const {data,error}=await db.from("invoices").insert(inv).select().single();
   if(error){errorMsg=error.message;render();return}
   message=type+" generado correctamente.";selectedItem=data;await loadData();currentView="invoiceView";render();

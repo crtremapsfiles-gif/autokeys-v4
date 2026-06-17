@@ -1325,7 +1325,14 @@ function proLineFromInvoice(inv){
     const base=euros(inv.base_amount||0);
     const shipping=euros(inv.shipping_price||0);
     const serviceBase=Math.max(0, base-shipping);
-    lines.push({qty:1,unit:"Ud",description:desc,unit_price:serviceBase||base,discount:0,total:serviceBase||base});
+    const descLines=String(desc).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+    if(descLines.length>1){
+      descLines.forEach((d,i)=>{
+        lines.push({qty:1,unit:"Ud",description:d,unit_price:i===0?(serviceBase||base):0,discount:0,total:i===0?(serviceBase||base):0});
+      });
+    }else{
+      lines.push({qty:1,unit:"Ud",description:desc,unit_price:serviceBase||base,discount:0,total:serviceBase||base});
+    }
   }
   const shipping=euros(inv.shipping_price||0);
   if(shipping>0){
